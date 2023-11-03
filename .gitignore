@@ -153,3 +153,10 @@ cython_debug/
 
 
 .DS_store
+
+transform_data/
+raw_data/
+results/
+wandb/
+*.p
+*.pt

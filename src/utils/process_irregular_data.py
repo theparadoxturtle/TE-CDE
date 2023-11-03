@@ -269,16 +269,16 @@ def data_sampler(
     features = list(raw_data.keys())
 
     for idx, indiv_stage in enumerate(cancer_stages):
-        if np.sum(raw_data["radio_application"][idx]) <= 2 and np.sum(
-            raw_data["chemo_application"][idx] <= 2,
-        ):
-            untreated = True
-            treated = False
-            kappa = 1
-        else:
-            untreated = False
-            treated = True
-            kappa = 10
+        # if np.sum(raw_data["radio_application"][idx]) <= 2 and np.sum(
+        #     raw_data["chemo_application"][idx] <= 2,
+        # ):
+        #     untreated = True
+        #     treated = False
+        #     kappa = 1
+        # else:
+        #     untreated = False
+        #     treated = True
+        #     kappa = 10
 
         if idx % 100 == 0:
             print(idx, ": Running - Hawkes")

@@ -378,9 +378,12 @@ def data_to_torch_tensor(data, sample_prop=1, time_concat=-1):
     data_y (torch tensor): containing outcomes
     data_tr (torch tensor): containing current treatments
     """
+    print('torch_to_tensor')
 
     # extract data
     data_x = data["current_covariates"]
+    print(data_x.shape)
+    print(data["time_covariates"].shape)
 
     data_x = np.concatenate(
         (data["current_covariates"], data["time_covariates"]),
@@ -389,6 +392,7 @@ def data_to_torch_tensor(data, sample_prop=1, time_concat=-1):
 
     # np.concatenate((training_processed['current_covariates'][:,0:n,:], training_processed['previous_treatments']), axis=2)
     data_a = data["previous_treatments"]
+    print(data_a.shape)
 
     data_time = None  # Because we include time in data_x
 

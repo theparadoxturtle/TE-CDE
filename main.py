@@ -13,8 +13,8 @@ from src.utils.data_utils import process_data, read_from_file, write_to_file
 from src.utils.process_irregular_data import *
 from trainer import trainer
 
-os.environ["WANDB_API_KEY"] = "ADD YOUR WANDB API KEY HERE"
-wandb_entity = "ADD YOUR WANDB ENTITY HERE"
+os.environ["WANDB_API_KEY"] = "5fde274208ccb5b959a482862a13407dd87954d6"
+wandb_entity = "jplai"
 
 
 def init_arg():
@@ -34,6 +34,8 @@ def init_arg():
     parser.add_argument("--max_horizon", type=int, default=5)
     parser.add_argument("--save_raw_datapath", type=str, default=None)
     parser.add_argument("--save_transformed_datapath", type=str, default=None)
+    parser.add_argument("--wandb_run", type=str, default="te_cde_reg")
+    parser.add_argument("--model_type", type=str, default="NeuralCDE")
     return parser.parse_args()
 
 
@@ -54,9 +56,10 @@ if __name__ == "__main__":
     logging.info("WANDB init...")
     # start a new run
     run = wandb.init(
-        project="te_cde_run",
+        project=args.wandb_run,
         entity=wandb_entity,
         config=f"./experiments/{args.experiment}.yml",
+        name="k=" + str(args.kappa) + " l=" + str(args.lambda_val) + " g=" + str(args.chemo_coeff) + " multi=" + str(args.multistep),
     )
 
     config = wandb.config
@@ -90,6 +93,7 @@ if __name__ == "__main__":
     wandb.log({"max_horizon": max_horizon})
 
     wandb.log({"strategy": strategy})
+    wandb.log({"model_type": args.model_type})
 
     coeff = int(args.radio_coeff)
 
@@ -112,7 +116,8 @@ if __name__ == "__main__":
         )
 
     else:
-        transformed_datapath = f"/content/drive/MyDrive/kappa{kappa}/new_cancer_sim_{coeff}_{coeff}_kappa_{kappa}.p"
+        # transformed_datapath = f"/content/drive/MyDrive/kappa{kappa}/new_cancer_sim_{coeff}_{coeff}_kappa_{kappa}.p"
+        transformed_datapath = f"transform_data/new_cancer_sim_{coeff}_{coeff}_kappa_{kappa}.p"
         logging.info(f"Loading transformed data from {transformed_datapath}")
         pickle_map = read_from_file(transformed_datapath)
 
@@ -135,33 +140,35 @@ if __name__ == "__main__":
             done = True
             break
 
-        try:
-            logging.info("Training model...")
-            cde_trainer = trainer(
-                run=run,
-                hidden_channels_x=config["hidden_channels_x"],
-                hidden_channels_a=config["hidden_channels_a"],
-                output_channels=config["output_channels"],
-                sample_proportion=config["sample_proportion"],
-                use_time=config["use_time"],
-                lambda_val=lambda_val,
-            )
+        # try:
+        logging.info("Training model...")
+        cde_trainer = trainer(
+            run=run,
+            hidden_channels_x=config["hidden_channels_x"],
+            hidden_channels_a=config["hidden_channels_a"],
+            output_channels=config["output_channels"],
+            sample_proportion=config["sample_proportion"],
+            use_time=config["use_time"],
+            lambda_val=lambda_val,
+            model_type=args.model_type,
+        )
 
-            wandb.log({"proportion": config["sample_proportion"]})
-            cde_trainer.fit(
-                train_data=training_processed,
-                validation_data=validation_processed,
-                epochs=config["epochs"],
-                patience=config["patience"],
-                batch_size=config["batch_size"],
-            )
-            logging.info("Testing model...")
-            cde_trainer.predict(test_data=test_processed)
-            done = True
+        wandb.log({"proportion": config["sample_proportion"]})
+        cde_trainer.fit(
+            train_data=training_processed,
+            validation_data=validation_processed,
+            epochs=config["epochs"],
+            patience=config["patience"],
+            batch_size=config["batch_size"],
+        )
+        logging.info("Testing model...")
+        cde_trainer.predict(test_data=test_processed)
+        done = True
 
-        except Exception as e:
-            print(e)
-            tries = tries + 1
+        # except Exception as e:
+        #     print('exception')
+        #     print(e)
+        #     tries = tries + 1
 
     if bool(multistep) == True:
         multidone = False
@@ -180,6 +187,7 @@ if __name__ == "__main__":
                     patience=config["patience"],
                     batch_size=config["batch_size"],
                     max_horizon=max_horizon,
+                    model_type=args.model_type,
                 )
 
                 logging.info("Testing multistep model...")

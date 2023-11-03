@@ -14,6 +14,8 @@ from torch.nn import functional as F
 from tqdm import tqdm
 
 from src.models.CDE_model import NeuralCDE
+from NJODE.models import NJODE
+import GRU_ODE_Bayes.data_utils_gru_ode_bayes as data_utils_gru
 from src.utils.data_utils import (
     data_to_torch_tensor,
     data_to_torch_tensor_multistep,
@@ -36,6 +38,7 @@ class trainer:
         sample_proportion=1,
         use_time=True,
         lambda_val=None,
+        model_type="NeuralCDE"
     ):
 
         self.run = run
@@ -51,6 +54,8 @@ class trainer:
 
         self.sample_proportion = sample_proportion
         self.lambda_val = lambda_val
+
+        self.model_type = model_type
 
         if self.use_time == False:
             self.time_concat = 0
@@ -69,6 +74,12 @@ class trainer:
             batch_y,
             batch_treat,
         ) in train_dataloader:
+            print(batch_coeffs_x.shape)
+            print(batch_coeffs_x.keys)
+            print(batch_y.shape)
+            print(batch_y.keys)
+            print(batch_treat.shape)
+            print(batch_treat.keys)
 
             batch_coeffs_x = torch.tensor(
                 batch_coeffs_x,
@@ -187,6 +198,31 @@ class trainer:
 
         return model, test_losses_total, test_losses_y, test_losses_a
 
+    def prepare_dataloader_njode(self, data, batch_size):
+        data_X, data_A, data_Time, data_y, data_tr, _, _ = data_to_torch_tensor(
+            data,
+            sample_prop=self.sample_proportion,
+        )
+
+        data_concat = torch.cat((data_X, data_A), 2)
+        print("data_concat")
+        print(data_concat.shape)
+
+        data_shape = list(data_concat.shape)
+
+        # to make it continuous we interpolate (linear - keep causal interpretation)
+        coeffs = torchcde.linear_interpolation_coeffs(data_concat)
+
+        # create train data_loader
+        dataset = torch.utils.data.TensorDataset(data_concat, data_Time, data_y, data_tr)
+        dataloader = torch.utils.data.DataLoader(
+            dataset=dataset, 
+            collate_fn=data_utils_gru.cde_collate_fun, 
+            shuffle=True, 
+            batch_size=batch_size)
+
+        return dataloader, data_shape
+
     def prepare_dataloader(self, data, batch_size):
         data_X, data_A, data_Time, data_y, data_tr, _, _ = data_to_torch_tensor(
             data,
@@ -194,6 +230,8 @@ class trainer:
         )
 
         data_concat = torch.cat((data_X, data_A), 2)
+        print("data_concat")
+        print(data_concat.shape)
 
         data_shape = list(data_concat.shape)
 
@@ -202,7 +240,14 @@ class trainer:
 
         # create train data_loader
         dataset = torch.utils.data.TensorDataset(coeffs, data_y, data_tr)
-        dataloader = torch.utils.data.DataLoader(dataset, batch_size=512)
+        if self.model_type == "NJODE":
+            dataloader = torch.utils.data.DataLoader(
+                dataset=dataset, 
+                collate_fn=data_utils_gru.custom_collate_fn, 
+                shuffle=True, 
+                batch_size=batch_size)
+        else:
+            dataloader = torch.utils.data.DataLoader(dataset, batch_size=512)
 
         return dataloader, data_shape
 
@@ -281,13 +326,34 @@ class trainer:
         )
 
         ######################
-        logging.info("Instantiating Neural CDE")
+        epochs = 100
+        default_ode_nn = ((50, 'tanh'), (50, 'tanh'))
+        default_readout_nn = ((50, 'tanh'), (50, 'tanh'))
+        default_enc_nn = ((50, 'tanh'), (50, 'tanh'))
 
-        model = NeuralCDE(
-            input_channels_x=data_shape[2],
-            hidden_channels_x=self.hidden_channels_x,
-            output_channels=59,
-        )
+        logging.info("Instantiating model")
+        if self.model_type == "NJODE":
+           model = NJODE(
+                input_size=data_shape[2],
+                hidden_size=self.hidden_channels_x,
+                epochs=epochs,
+                output_size=59,
+                ode_nn=default_ode_nn,
+                readout_nn=default_readout_nn,
+                enc_nn=default_enc_nn,
+                bias=True,
+                use_rnn=False,
+                dropout_rate=0.1,
+                batch_size=100,
+                solver="euler",
+                learning_rate=0.0001,
+            )
+        else:
+           model = NeuralCDE(
+                input_channels_x=data_shape[2],
+                hidden_channels_x=self.hidden_channels_x,
+                output_channels=59,
+            )
 
         model = model.to(self.device)
 
@@ -296,7 +362,7 @@ class trainer:
         self.run.watch(model, log="all")
 
         logging.info("Training CDE")
-        epochs = 100
+        
 
         # allows lambda to vary across training
         lambda_vals = np.linspace(0.0, 1.0, num=epochs)
@@ -518,13 +584,34 @@ class trainer:
         )
 
         ######################
-        logging.info("Instantiating Neural CDE multistep")
+        epochs = 10
+        default_ode_nn = ((50, 'tanh'), (50, 'tanh'))
+        default_readout_nn = ((50, 'tanh'), (50, 'tanh'))
+        default_enc_nn = ((50, 'tanh'), (50, 'tanh'))
 
-        model_multistep = NeuralCDE(
-            input_channels_x=data_shape[2],
-            hidden_channels_x=self.hidden_channels_x,
-            output_channels=max_horizon,
-        )
+        logging.info("Instantiating multistep model")
+        if self.model_type == "NJODE":
+           model_multistep = NJODE(
+                input_size=data_shape[2],
+                hidden_size=self.hidden_channels_x,
+                epochs=epochs,
+                output_size=max_horizon,
+                ode_nn=default_ode_nn,
+                readout_nn=default_readout_nn,
+                enc_nn=default_enc_nn,
+                bias=True,
+                use_rnn=False,
+                dropout_rate=0.1,
+                batch_size=100,
+                solver="euler",
+                learning_rate=0.0001,
+            )
+        else:
+            model_multistep = NeuralCDE(
+                input_channels_x=data_shape[2],
+                hidden_channels_x=self.hidden_channels_x,
+                output_channels=max_horizon,
+            )
 
         model_multistep = model_multistep.to(self.device)
 
@@ -540,7 +627,6 @@ class trainer:
 
         logging.info("Training CDE")
 
-        epochs = 10
         lambda_vals = np.linspace(0.0, 1.0, num=epochs)
 
         for epoch in tqdm(range(epochs)):
